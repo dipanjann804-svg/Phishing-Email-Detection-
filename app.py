@@ -1,20 +1,3 @@
-"""
-Flask backend for the Phishing Email Detection project.
-
-Endpoints:
-    GET  /                 -> web UI to paste an email and check it
-    POST /predict           -> JSON API: {"subject": "...", "body": "...", "sender": "..."} ->
-                                {"label": "phishing"|"legitimate", "confidence": 0.0-1.0, ...}
-    GET  /model-info         -> accuracy, label classes, and top feature importances
-    GET  /confusion-matrix    -> the confusion matrix PNG saved during training
-
-Run:
-    python generate_dataset.py   # first time only, or to refresh the dataset
-    python train_model.py        # first time only, or to retrain
-    python app.py
-Then open http://127.0.0.1:5000/
-"""
-
 import os
 import joblib
 from flask import Flask, jsonify, render_template, request, send_file, abort
@@ -119,5 +102,7 @@ def confusion_matrix_image():
     return send_file(CONFUSION_MATRIX_PATH, mimetype="image/png")
 
 
+
 if __name__ == "__main__":
-    app.run(debug=True, host="127.0.0.1", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=False, host="0.0.0.0", port=port)
