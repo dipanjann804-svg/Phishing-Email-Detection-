@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Phishing Email Detector</title>
+<style>
+  :root {
+    --bg:  #254117;
+    --card: #2a3648;
+    --text: #e2e8f0;
+    --muted: #FFFDD0;
+    --accent: #38bdf8;
+    --danger: #f87171;
+    --safe: #4ade80;
+    --border: #B0CFDE;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+    padding: 40px 20px;
+  }
+  .container { width: 100%; max-width: 640px; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  p.subtitle { color: var(--muted); margin-top: 0; margin-bottom: 24px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .model-badge {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .model-badge strong { color: var(--accent); font-size: 1.1rem; }
+  .model-badge .toggle-link { color: var(--accent); cursor: pointer; text-decoration: underline; font-size: 0.8rem; }
+  #modelDetails { display: none; margin-top: 16px; }
+  #modelDetails img { width: 100%; border-radius: 8px; margin-top: 8px; }
+  #importanceList { font-size: 0.85rem; margin-top: 8px; padding-left: 0; list-style: none; }
+  #importanceList li { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid var(--border); color: var(--muted); }
+  #importanceList li span:last-child { color: var(--text); }
+  label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; }
+  input, textarea {
+    width: 100%;
+    background: #CCCCFF;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: #0f172a;
+    padding: 10px 12px;
+    font-size: 0.95rem bold;
+    margin-bottom: 16px;
+    font-family: inherit;
+    resize: vertical;
+  }
+  textarea { min-height: 140px; }
+  button {
+    background: var(--accent);
+    color: #0f172a;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  #result { display: none; }
+  .verdict {
+    font-size: 1.3rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .verdict.phishing { color: var(--danger); }
+  .verdict.legitimate { color: var(--safe); }
+  .confidence { color: var(--muted); margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  td { padding: 4px 0; border-bottom: 1px solid var(--border); color: var(--muted); }
+  td:last-child { text-align: right; color: var(--text); }
+  .error { color: var(--danger); margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Phishing Email Detector</h1>
+  <p class="subtitle">Paste an email's sender, subject, and body to check whether it looks like phishing.</p>
+
+  <div class="card">
+    <div class="model-badge">
+      <div id="modelBadgeText">Loading model info...</div>
+      <span class="toggle-link" id="toggleDetails" style="display:none;">details ▾</span>
+    </div>
+    <div id="modelDetails">
+      <ul id="importanceList"></ul>
+      <img id="confusionMatrixImg" alt="Confusion matrix" style="display:none;">
+    </div>
+  </div>
+
+  <div class="card">
+    <label for="sender">From (email address)</label>
+    <input id="sender" type="text" placeholder="e.g. billing@example.com">
+
+    <label for="subject">Subject</label>
+    <input id="subject" type="text" placeholder="e.g. Urgent: Verify your account">
+
+    <label for="body">Body</label>
+    <textarea id="body" placeholder="Paste the email content here..."></textarea>
+
+    <button id="checkBtn" onclick="checkEmail()">Check Email</button>
+    <div id="errorMsg" class="error"></div>
+  </div>
+
+  <div class="card" id="result">
+    <div id="verdict" class="verdict"></div>
+    <div id="confidence" class="confidence"></div>
+    <table id="featureTable"></table>
+  </div>
+</div>
+
+<script>
+async function loadModelInfo() {
+  const badgeText = document.getElementById('modelBadgeText');
+  const toggle = document.getElementById('toggleDetails');
+  const details = document.getElementById('modelDetails');
+  const importanceList = document.getElementById('importanceList');
+  const cmImg = document.getElementById('confusionMatrixImg');
+
+  try {
+    const res = await fetch('/model-info');
+    const data = await res.json();
+
+    if (!res.ok) {
+      badgeText.textContent = 'Model not trained yet — run train_model.py.';
+      return;
+    }
+
+    const acc = data.accuracy != null ? (data.accuracy * 100).toFixed(1) + '%' : 'n/a';
+    badgeText.innerHTML = `Model accuracy: <strong>${acc}</strong> on held-out test set`;
+
+    importanceList.innerHTML = '';
+    (data.feature_importances || []).slice(0, 6).forEach(fi => {
+      const li = document.createElement('li');
+      li.innerHTML = `<span>${fi.feature}</span><span>${fi.importance}</span>`;
+      importanceList.appendChild(li);
+    });
+
+    if (data.has_confusion_matrix) {
+      cmImg.src = '/confusion-matrix?_=' + Date.now();
+      cmImg.style.display = 'block';
+    }
+
+    toggle.style.display = 'inline';
+    toggle.onclick = () => {
+      const isOpen = details.style.display === 'block';
+      details.style.display = isOpen ? 'none' : 'block';
+      toggle.textContent = isOpen ? 'details ▾' : 'details ▴';
+    };
+  } catch (e) {
+    badgeText.textContent = 'Could not load model info.';
+  }
+}
+
+async function checkEmail() {
+  const sender = document.getElementById('sender').value;
+  const subject = document.getElementById('subject').value;
+  const body = document.getElementById('body').value;
+  const btn = document.getElementById('checkBtn');
+  const errorMsg = document.getElementById('errorMsg');
+  const resultCard = document.getElementById('result');
+
+  errorMsg.textContent = '';
+  resultCard.style.display = 'none';
+
+  if (!subject && !body) {
+    errorMsg.textContent = 'Please enter a subject or body.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Checking...';
+
+  try {
+    const res = await fetch('/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sender, subject, body })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      errorMsg.textContent = data.error || 'Something went wrong.';
+      return;
+    }
+
+    const verdictEl = document.getElementById('verdict');
+    verdictEl.textContent = data.display_label === 'Phishing' ? '⚠️ Phishing' : '✅ Safe';
+    verdictEl.className = 'verdict ' + data.label;
+
+    document.getElementById('confidence').textContent =
+      'Confidence: ' + (data.confidence * 100).toFixed(1) + '%';
+
+    const table = document.getElementById('featureTable');
+    table.innerHTML = '';
+    for (const [key, value] of Object.entries(data.features)) {
+      const row = document.createElement('tr');
+      row.innerHTML = `<td>${key}</td><td>${value}</td>`;
+      table.appendChild(row);
+    }
+
+    resultCard.style.display = 'block';
+  } catch (e) {
+    errorMsg.textContent = 'Request failed: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Check Email';
+  }
+}
+
+loadModelInfo();
+</script>
+</body>
+</html>
