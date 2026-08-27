@@ -139,12 +139,18 @@ async function loadModelInfo() {
 
   try {
     const res = await fetch('/model-info');
-    const data = await res.json();
-
     if (!res.ok) {
-      badgeText.textContent = 'Model not trained yet — run train_model.py.';
+      badgeText.textContent = res.status === 404
+        ? 'Backend API not found. Please ensure the Python Flask backend is running.'
+        : 'Model not trained yet — run train_model.py.';
       return;
     }
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      badgeText.textContent = 'API returned non-JSON response. Ensure Flask server is running.';
+      return;
+    }
+    const data = await res.json();
 
     const acc = data.accuracy != null ? (data.accuracy * 100).toFixed(1) + '%' : 'n/a';
     badgeText.innerHTML = `Model accuracy: <strong>${acc}</strong> on held-out test set`;
@@ -168,7 +174,7 @@ async function loadModelInfo() {
       toggle.textContent = isOpen ? 'details ▾' : 'details ▴';
     };
   } catch (e) {
-    badgeText.textContent = 'Could not load model info.';
+    badgeText.textContent = 'Could not load model info: ' + e.message;
   }
 }
 
@@ -197,6 +203,13 @@ async function checkEmail() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sender, subject, body })
     });
+
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const errorText = await res.text();
+      throw new Error(`Server returned HTTP ${res.status} (${res.statusText}). Make sure your Flask backend server is running and not hosted as static HTML.`);
+    }
+
     const data = await res.json();
 
     if (!res.ok) {
