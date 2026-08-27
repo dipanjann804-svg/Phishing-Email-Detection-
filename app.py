@@ -11,7 +11,8 @@ CONFUSION_MATRIX_PATH = os.path.join(MODEL_DIR, "confusion_matrix.png")
 
 MAX_INPUT_CHARS = 20000  # guard against pathologically large pastes
 
-app = Flask(__name__)
+template_dir = "templates" if os.path.exists("templates") else "."
+app = Flask(__name__, template_folder=template_dir)
 
 _bundle = None
 
@@ -100,7 +101,6 @@ def confusion_matrix_image():
     if not os.path.exists(CONFUSION_MATRIX_PATH):
         abort(404, description="Confusion matrix not found. Run train_model.py first.")
     return send_file(CONFUSION_MATRIX_PATH, mimetype="image/png")
-
 
 
 if __name__ == "__main__":
